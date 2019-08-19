@@ -104,8 +104,10 @@ func main() {
 		if !response.Success {
 			log.Fatalf("Failed purging cache for host %v: %v", host, response.Errors)
 		}
+		logInfo("Succesfully purged Cloudflare cache for host %v", host)
 	}
 
+	logInfo("Succesfully purged Cloudflare cache for all hosts")
 }
 
 func logInfo(message string, args ...interface{}) {
