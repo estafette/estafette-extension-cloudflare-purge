@@ -2,17 +2,17 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"log"
-	"os"
 	"runtime"
 	"strings"
 
 	"github.com/alecthomas/kingpin"
 	"github.com/cloudflare/cloudflare-go"
+	foundation "github.com/estafette/estafette-foundation"
+	"github.com/rs/zerolog/log"
 )
 
 var (
+	appgroup  string
 	app       string
 	version   string
 	branch    string
@@ -32,42 +32,38 @@ func main() {
 	// parse command line parameters
 	kingpin.Parse()
 
-	// log to stdout and hide timestamp
-	log.SetOutput(os.Stdout)
-	log.SetFlags(log.Flags() &^ (log.Ldate | log.Ltime))
+	// init log format from envvar ESTAFETTE_LOG_FORMAT
+	foundation.InitLoggingFromEnv(appgroup, app, version, branch, revision, buildDate)
 
-	// log startup message
-	logInfo("Starting %v version %v...", app, version)
-
-	logInfo("Unmarshalling injected credentials...")
+	log.Info().Msg("Unmarshalling injected credentials...")
 	var credentials []CloudflareCredentials
 	err := json.Unmarshal([]byte(*credentialsJSON), &credentials)
 	if err != nil {
-		log.Fatal("Failed unmarshalling injected credentials: ", err)
+		log.Fatal().Err(err).Msg("Failed unmarshalling injected credentials")
 	}
 
 	if len(credentials) == 0 {
-		log.Fatalf("No credentials of type cloudflare have been passed in.")
+		log.Fatal().Msg("No credentials of type cloudflare have been passed in.")
 	}
 	credential := credentials[0]
 
 	var params Params
 
-	logInfo("Unmarshalling parameters / custom properties...")
+	log.Info().Msg("Unmarshalling parameters / custom properties...")
 	err = json.Unmarshal([]byte(*paramsJSON), &params)
 	if err != nil {
-		log.Fatal("Failed unmarshalling parameters: ", err)
+		log.Fatal().Err(err).Msg("Failed unmarshalling parameters")
 	}
 
-	logInfo("Validating required parameters...")
+	log.Info().Msg("Validating required parameters...")
 	valid, errors := params.ValidateRequiredProperties()
 	if !valid {
-		log.Fatal("Not all valid fields are set: ", errors)
+		log.Fatal().Msgf("Not all valid fields are set: %v", errors)
 	}
 
 	cloudflareAPI, err := cloudflare.New(credential.AdditionalProperties.APIKey, credential.AdditionalProperties.APIEmail)
 	if err != nil {
-		log.Fatal("Failed creating Cloudflare client: ", err)
+		log.Fatal().Err(err).Msg("Failed creating Cloudflare client")
 	}
 
 	for _, host := range params.Hosts {
@@ -91,26 +87,21 @@ func main() {
 			n++
 		}
 		if err != nil {
-			log.Fatalf("Can't find zone for host %v", host)
+			log.Fatal().Err(err).Msgf("Can't find zone for host %v", host)
 		}
 
-		logInfo("Purging Cloudflare cache for host %v", host)
+		log.Info().Msgf("Purging Cloudflare cache for host %v", host)
 		response, err := cloudflareAPI.PurgeCache(id, cloudflare.PurgeCacheRequest{
 			Hosts: []string{host},
 		})
 		if err != nil {
-			log.Fatalf("Failed purging cache for host %v: %v", host, err)
+			log.Fatal().Err(err).Msgf("Failed purging cache for host %v", host)
 		}
 		if !response.Success {
-			log.Fatalf("Failed purging cache for host %v: %v", host, response.Errors)
+			log.Fatal().Msgf("Failed purging cache for host %v: %v", host, response.Errors)
 		}
-		logInfo("Succesfully purged Cloudflare cache for host %v", host)
+		log.Info().Msgf("Succesfully purged Cloudflare cache for host %v", host)
 	}
 
-	logInfo("Succesfully purged Cloudflare cache for all hosts")
-}
-
-func logInfo(message string, args ...interface{}) {
-	formattedMessage := fmt.Sprintf(message, args...)
-	log.Printf("%v\n\n", formattedMessage)
+	log.Info().Msg("Succesfully purged Cloudflare cache for all hosts")
 }
