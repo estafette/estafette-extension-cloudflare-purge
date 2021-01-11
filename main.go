@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/ioutil"
 	"runtime"
 	"strings"
 
@@ -24,7 +25,7 @@ var (
 var (
 	// flags
 	paramsJSON      = kingpin.Flag("params", "Extension parameters, created from custom properties.").Envar("ESTAFETTE_EXTENSION_CUSTOM_PROPERTIES").Required().String()
-	credentialsJSON = kingpin.Flag("credentials", "Cloudflare credentials configured at service level, passed in to this trusted extension.").Envar("ESTAFETTE_CREDENTIALS_CLOUDFLARE").Required().String()
+	credentialsPath = kingpin.Flag("credentials-path", "Path to file with Cloudflare credentials configured at service level, passed in to this trusted extension.").Default("/credentials/cloudflare.json").String()
 )
 
 func main() {
@@ -37,11 +38,23 @@ func main() {
 
 	log.Info().Msg("Unmarshalling injected credentials...")
 	var credentials []CloudflareCredentials
-	err := json.Unmarshal([]byte(*credentialsJSON), &credentials)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed unmarshalling injected credentials")
+	// use mounted credential file if present instead of relying on an envvar
+	if runtime.GOOS == "windows" {
+		*credentialsPath = "C:" + *credentialsPath
 	}
-
+	if foundation.FileExists(*credentialsPath) {
+		log.Info().Msgf("Reading credentials from file at path %v...", *credentialsPath)
+		credentialsFileContent, err := ioutil.ReadFile(*credentialsPath)
+		if err != nil {
+			log.Fatal().Msgf("Failed reading credential file at path %v.", *credentialsPath)
+		}
+		err = json.Unmarshal(credentialsFileContent, &credentials)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed unmarshalling injected credentials")
+		}
+	} else {
+		log.Fatal().Msg("Credentials of type cloudflare are not injected; configure this extension as trusted and inject credentials of type cloudflare")
+	}
 	if len(credentials) == 0 {
 		log.Fatal().Msg("No credentials of type cloudflare have been passed in.")
 	}
@@ -50,7 +63,7 @@ func main() {
 	var params Params
 
 	log.Info().Msg("Unmarshalling parameters / custom properties...")
-	err = json.Unmarshal([]byte(*paramsJSON), &params)
+	err := json.Unmarshal([]byte(*paramsJSON), &params)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed unmarshalling parameters")
 	}
